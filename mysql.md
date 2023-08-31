@@ -199,3 +199,22 @@ roll_pointer：记录上一个版本的指针
 两阶段提交：（内部XA事务）
     - prepare阶段：将XID（内部事务的ID）写入redo log，同时将redo log对应的事务状态设置为prepare，然后将redo log持久化道磁盘
     - commit阶段：将XID写入binlog然后将binlog持久化到磁盘，接着调用引擎的提交事物接口，将redo log设置为commit，此时该状态并不需要持久化到磁盘，只需要write到文件系统的page cache中就够了，因为只要binlog些磁盘成功，redo log是prepare一样认为事务执行成功。
+### buffer pool
+1. 为什么有buffer pool，buffer pool有多大，缓存什么？
+   - 有了buffer pool后，对于读数据，如果数据存在于buffer pool中，客户会直接访问buffer pool，不需要io。修改数据，直接修改buffer pool所在页面为脏页，最后由后台线程将脏页写入磁盘
+   - buffer pool默认配置是128mb
+   - buffer pool缓存若干个16kb的页。包括索引页、数据页、插入缓存、undo页、自适应哈希索引、锁信息
+   - innodb为每个缓存页创建了控制块，控制块信息包括：缓存页的表空间、页号、缓存页地址、链表结点等。
+   - 查询一条记录时，会缓存这个页
+2. 如何管理buffer pool
+   - 管理空白页，使用free链表
+   - 管理脏页：使用Flush链表
+提高缓存命中率：lru算法
+3. lru算法问题：
+   - 预读失效：mysql加载数据页的同时，会把相邻的数据页一并还在，提前祝被加载的数据页没有被访问
+   解决办法：将lru划分2个区域，old区域与young区域。预读放到old区域只有被命中了才放到young区域，young区域被淘汰的页面，也会先进入old区域
+    - buffer污染：某一个sql语句扫描大量数据（比如不使用索引）导致大量数据淘汰
+   解决办法：
+    mysql进入到young区域增加一个停留在old区域的时间判断
+    如果后续访问时间与第一次访问时间在某个时间间隔内，该缓存页不会移动到young区域头部
+    如果不在某个时间间隔内，移动到young区域头部
