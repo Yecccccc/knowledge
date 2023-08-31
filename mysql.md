@@ -156,9 +156,46 @@ roll_pointer：记录上一个版本的指针
    - 解决死锁的办法：超时时间、开启主动死锁检测
 ### mysql日志
 1. 三种日志
+   undo log和redo log是innodb引擎生成，binlog由server层生成
    - undo log 回滚日志，实现原子性，用于事务回滚（事务崩溃，可以回滚）和mvcc（页面中的记录）
    - redo log 重做日志：实现持久性，用于掉电等故障恢复（断点时更新，innodb会先更新内存，再将修改用redo log记录）
      WAL（Write-Ahead Logging）：mysql的写不是立刻写到磁盘上，先写日志，合适的时候在写磁盘
    - binlog 归档日志：用于数据备份和主从复制
-2. 
-3. 
+3. buffer pool:缓存技术提高数据库的读写性能，innodb为buffer pool申请一片连续的内存空间，然后按照16kb划分出一个个页面
+   - 读取数据时，如果数据存在于buffer pool，客户端直接读取buffer pool的数据，否则再去磁盘读写
+   - 修改数据时，如果数据存在于buffer pool，直接修改buffer pool的数据所在页，然后设置为脏页，为了减少io，不会立刻写入磁盘，后续由后台线程选择合适的时机将脏页写入磁盘
+   - undo页：开启事务后，innodb更新记录前，首先要记录相应的undo log，如果是更新操作，需要把被更新的列的旧值记下来，生成一条undo log，unlog log会写入buffer pool的undo页
+4. undo log和redo log的区别
+   - redo log记录此次事务**完成后**的数据状态，记录的是更新之后的值
+   - undo log记录此次事务**开始前**的数据状态，记录的是更新之前的值
+   - 事务提交之前发生崩溃，重启后会通过undo log回滚事务，事务提交之后发生崩溃，重启后会通过redo log恢复事务
+   - 通过redo log和wal技术，innodb保证数据库发生异常重启后，之前提交的记录不会丢失，这个能力称为crash-safe。redo log保证了四大特性的持久性
+5. binlog，binlog与redo log的区别
+一开始mysql没有innodb引擎，mysql使用的是myisam，但是myisam没有crash-safe能力，binlog只能用于归档
+区别：
+    - 使用对象不同：binlog是server层的日志，所有存储引擎都可以使用。redo log是innodb存储引擎实现的日志
+    - 文件格式不同：
+      **binlog有三种格式类型，分别是statement（默认）、row、mixed**
+      statement：每一条修改数据的sql都会被记录到binlog里，主从复制里再根据这些sql语句重现
+      row：记录行数据最终被修改成什么
+      mixed：包含statement和row模式，根据不同情况使用不同模式
+      **redo log是物理日志，记录在某个数据页做了什么修改**
+   -  写入方式不同：binlog是追加写（全量日志），redo log是循环写（写满重新写，保存未被刷入磁盘的脏页日志）
+   -  用途不同：binlog用于备份恢复、主从复制。redo log用于掉电等故障恢复（整个数据库被删除，只能使用binlog，因为binlog存储的是全量日志）
+6. 主从复制怎么实现
+   异步，3个阶段：
+   - 写入binlog：主库写binlog日志，提交事物，更新本地存储数据
+   - 同步binlog：把binlog复制到所有从库上，每个从库把binlog写到暂存日志中
+   - 回放binlog：回放binlog，并更新存储引擎中的数据
+   从库越多，主库也要创建同样多的log dump线程处理复制的请求，对主库资源消耗高，同时受限于主库网络带宽
+8. mysql主从复制还有哪些模型
+   - 同步复制：提交事物的线程需要等待从库复制成功才响应。性能很差，可用性差（任何一个库出问题，都会影响业务）
+   - 异步复制（默认）：主库提交食物的线程并不会等待binlog同步到各从库，就返回客户端。主库宕机，数据就会丢失。
+   - 半同步复制：事务不用等待所有从库复制成功响应，只要一部分复制成功响应回来就行
+10. 两阶段提交
+问题：
+    - redo log刷入磁盘，mysql宕机，binlog没有写入，导致主库是新的，从库是旧的
+    - binlog刷入磁盘，mysql宕机，redo log没有写入，导致从库是新的，主库是旧的
+两阶段提交：（内部XA事务）
+    - prepare阶段：将XID（内部事务的ID）写入redo log，同时将redo log对应的事务状态设置为prepare，然后将redo log持久化道磁盘
+    - commit阶段：将XID写入binlog然后将binlog持久化到磁盘，接着调用引擎的提交事物接口，将redo log设置为commit，此时该状态并不需要持久化到磁盘，只需要write到文件系统的page cache中就够了，因为只要binlog些磁盘成功，redo log是prepare一样认为事务执行成功。
