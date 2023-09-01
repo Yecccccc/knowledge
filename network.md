@@ -79,6 +79,29 @@
 
 2. 协商缓存
 
+  协商缓存就是与服务端协商之后，通过协商结果来判断是否使用本地缓存。一般通过http响应码304
+
+  两种方式：If-Modified-Since字段和Last-Modified字段、If-None-Match和ETag字段
+
+  - If-Modified-Since字段和Last-Modified字段
+    响应头的Last-Modified标示这个响应资源的最后修改时间
+
+    请求头的If-Modified-Since：发现响应头有Last-Modified声明，再次请求的时候带上Last-Modified的时间，服务器根据 If-Modified-Since和最后修改时间进行对比，判断是否被修改，然后返回不同的状态码（200 or 304）
+  - If-None-Match和ETag字段
+    Etag：标识唯一响应资源
+    If-None-Match：当资源过期时，浏览器发现响应头里有 Etag，则再次向服务器发起请求时，会将请求头 If-None-Match 值设置为 Etag 的值。服务器收到请求后进行比对，如果资源没有变化返回 304，如果资源变化了返回 200。
+
+## http/1.1与https
+1. http/1.1优点
+   简单、灵活易拓展、应用广泛、跨平台
+   长链接
+   管道化
+3. http/1.1缺点
+   无状态、明文传输、不安全
+   session-cookie
+5. 
+
+
 ## socket与tcp握手/挥手
 
 1. tcp的三次握手
