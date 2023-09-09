@@ -297,8 +297,13 @@
   主机字节序：有的小端，有的大端。
 
   小端与小端主机通信：在网络中会被取反两次，所以不影响
-
   
-
+- new和malloc的区别，operator new和new operator
+  
+  1. new是C++关键字，返回指针，自动调用对象的构造函数。失败抛出std::bad_alloc异常，与delete配套使用。new关键字底层通过operator new函数动态申请内存，operator new可以被重载，实现不同内存的分配行为。
+  2. malloc是标准库函数，用于分配指定大小的内存块，返回指向内存块的指针，需要强转。不会调用构造函数。失败返回NULL，与free配套使用。
+  
+  
+  
   
 
